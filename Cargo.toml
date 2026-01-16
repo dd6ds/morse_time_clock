@@ -1,0 +1,22 @@
+[package]
+name = "morse_time_clock"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+eframe = "0.29"
+egui = "0.29"
+rodio = "0.19"
+chrono = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+# Strip symbols for smaller binaries
+strip = true
+
+[[bin]]
+name = "morse_time_clock"
+path = "src/main.rs"
