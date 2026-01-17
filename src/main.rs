@@ -5,13 +5,29 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-// Morse code timing constants (in milliseconds)
-const DOT_DURATION: u64 = 100;
-const DASH_DURATION: u64 = DOT_DURATION * 3;
-const SYMBOL_SPACE: u64 = DOT_DURATION;
-const LETTER_SPACE: u64 = DOT_DURATION * 3;
-const WORD_SPACE: u64 = DOT_DURATION * 7;
+// Morse code timing (calculated from WPM)
+// Standard: WPM = 1200 / dot_duration_ms
 const TONE_FREQUENCY: f32 = 600.0;
+
+fn calculate_timings(wpm: u32) -> MorseTiming {
+    let dot_duration = 1200 / wpm as u64;
+    MorseTiming {
+        dot: dot_duration,
+        dash: dot_duration * 3,
+        symbol_space: dot_duration,
+        letter_space: dot_duration * 3,
+        word_space: dot_duration * 7,
+    }
+}
+
+#[derive(Clone, Copy)]
+struct MorseTiming {
+    dot: u64,
+    dash: u64,
+    symbol_space: u64,
+    letter_space: u64,
+    word_space: u64,
+}
 
 #[derive(Clone, PartialEq)]
 enum MorseSymbol {
@@ -26,6 +42,7 @@ struct MorseTimeClockApp {
     morse_display: String,
     is_playing: Arc<Mutex<bool>>,
     last_played_time: String,
+    wpm: u32,
 }
 
 impl Default for MorseTimeClockApp {
@@ -35,6 +52,7 @@ impl Default for MorseTimeClockApp {
             morse_display: String::new(),
             is_playing: Arc::new(Mutex::new(false)),
             last_played_time: String::new(),
+            wpm: 20, // Default to 20 WPM
         }
     }
 }
@@ -170,30 +188,31 @@ impl Source for ToneSource {
     }
 }
 
-fn play_morse_code(morse: Vec<MorseSymbol>) {
+fn play_morse_code(morse: Vec<MorseSymbol>, wpm: u32) {
     thread::spawn(move || {
+        let timing = calculate_timings(wpm);
         if let Ok((_stream, stream_handle)) = OutputStream::try_default() {
             let sink = Sink::try_new(&stream_handle).unwrap();
             
             for symbol in morse {
                 match symbol {
                     MorseSymbol::Dot => {
-                        let source = ToneSource::new(TONE_FREQUENCY, DOT_DURATION);
+                        let source = ToneSource::new(TONE_FREQUENCY, timing.dot);
                         sink.append(source);
                         sink.sleep_until_end();
-                        thread::sleep(Duration::from_millis(SYMBOL_SPACE));
+                        thread::sleep(Duration::from_millis(timing.symbol_space));
                     }
                     MorseSymbol::Dash => {
-                        let source = ToneSource::new(TONE_FREQUENCY, DASH_DURATION);
+                        let source = ToneSource::new(TONE_FREQUENCY, timing.dash);
                         sink.append(source);
                         sink.sleep_until_end();
-                        thread::sleep(Duration::from_millis(SYMBOL_SPACE));
+                        thread::sleep(Duration::from_millis(timing.symbol_space));
                     }
                     MorseSymbol::LetterSpace => {
-                        thread::sleep(Duration::from_millis(LETTER_SPACE));
+                        thread::sleep(Duration::from_millis(timing.letter_space));
                     }
                     MorseSymbol::WordSpace => {
-                        thread::sleep(Duration::from_millis(WORD_SPACE));
+                        thread::sleep(Duration::from_millis(timing.word_space));
                     }
                 }
             }
@@ -232,6 +251,14 @@ impl eframe::App for MorseTimeClockApp {
                 );
             });
             
+            ui.add_space(20.0);
+            
+            // WPM Selector
+            ui.horizontal(|ui| {
+                ui.label("Speed (WPM):");
+                ui.add(egui::Slider::new(&mut self.wpm, 5..=40).text("WPM"));
+            });
+            
             ui.add_space(30.0);
             
             let is_playing = *self.is_playing.lock().unwrap();
@@ -245,8 +272,9 @@ impl eframe::App for MorseTimeClockApp {
                     self.last_played_time = self.current_time.clone();
                     
                     let is_playing_clone = Arc::clone(&self.is_playing);
+                    let wpm = self.wpm;
                     thread::spawn(move || {
-                        play_morse_code(morse);
+                        play_morse_code(morse, wpm);
                         thread::sleep(Duration::from_secs(1));
                         *is_playing_clone.lock().unwrap() = false;
                     });
